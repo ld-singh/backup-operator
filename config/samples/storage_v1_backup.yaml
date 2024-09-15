@@ -1,0 +1,11 @@
+apiVersion: storage.my.domain/v1
+kind: Backup
+metadata:
+  labels:
+    app.kubernetes.io/name: backup-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: backup-sample
+spec:
+  applicationName: my-app                 # The name of the application to back up
+  storageLocation: backup-operator         # The S3/MinIO bucket where the backup will be stored
+  schedule: "24h"                    # The schedule for backups (in this case, every 24 hours)

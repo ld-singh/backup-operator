@@ -1,23 +1,15 @@
----
+# permissions for end users to edit restores.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: manager-role
+  labels:
+    app.kubernetes.io/name: backup-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: restore-editor-role
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - endpoints
-  - pods
-  - services
-  verbs:
-  - get
-  - list
-  - watch
 - apiGroups:
   - storage.my.domain
   resources:
-  - backups
   - restores
   verbs:
   - create
@@ -30,16 +22,6 @@ rules:
 - apiGroups:
   - storage.my.domain
   resources:
-  - backups/finalizers
-  - restores/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - storage.my.domain
-  resources:
-  - backups/status
   - restores/status
   verbs:
   - get
-  - patch
-  - update

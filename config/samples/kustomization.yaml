@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- storage_v1_backup.yaml
+- storage_v1_restore.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
