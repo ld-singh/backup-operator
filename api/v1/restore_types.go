@@ -20,22 +20,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // RestoreSpec defines the desired state of Restore
 type RestoreSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of Restore. Edit restore_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	ApplicationName string `json:"applicationName,omitempty"` // Name of the application to restore
+	BackupFile      string `json:"backupFile,omitempty"`      // Backup file to restore
+	StorageLocation string `json:"storageLocation,omitempty"` // S3/MinIO bucket location
 }
 
 // RestoreStatus defines the observed state of Restore
 type RestoreStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	RestoreState    string       `json:"restoreState,omitempty"`    // InProgress, Completed, Failed
+	LastRestoreTime *metav1.Time `json:"lastRestoreTime,omitempty"` // Timestamp of the last successful restore
 }
 
 // +kubebuilder:object:root=true

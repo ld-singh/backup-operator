@@ -30,11 +30,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	storagev1 "github.com-p/ld-singh/backup-operator/api/v1"
 )
@@ -148,51 +151,62 @@ func createBackupFile(applicationName string) (io.ReadCloser, error) {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/reconcile
+
 func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
 	// Fetch the Backup resource
-	backup := &storagev1.Backup{}                 // Create an empty Backup object
-	err := r.Get(ctx, req.NamespacedName, backup) // Fetch the Backup from the cluster
-	if err != nil {
+	backup := &storagev1.Backup{}
+	if err := r.Get(ctx, req.NamespacedName, backup); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			return ctrl.Result{}, err // If error other than NotFound, requeue with an error
+			log.Error(err, "Unable to fetch Backup resource")
+			return ctrl.Result{}, err
 		}
-		// Backup resource not found. Return and don't requeue
+		// Resource not found, nothing to reconcile
 		return ctrl.Result{}, nil
 	}
 
-	// Check if a backup is already in progress
+	// Deep copy the backup object to compare the original status later
+	originalBackup := backup.DeepCopy()
+
+	// Check if backup is already in progress
 	if backup.Status.BackupState == "InProgress" {
-		log.Info("A back up is already in Progress. Requeing for later.")
+		log.Info("A backup is already in progress. Requeuing for later.")
 		return ctrl.Result{RequeueAfter: time.Minute * 10}, nil
 	}
 
-	// Set backup status to "InProgress"
-	backup.Status.BackupState = "InProgress"
-	if err := r.Status().Update(ctx, backup); err != nil {
-		log.Error(err, "Failed to update backup status to InProgress")
-		return ctrl.Result{}, err
-	}
-
-	// Perform the actual backups
-	if err := r.performBackup(ctx, backup); err != nil {
-		backup.Status.BackupState = "Failed"
+	// If backup is not in progress, set status to "InProgress"
+	if backup.Status.BackupState != "InProgress" {
+		log.Info("Setting backup status to InProgress")
+		backup.Status.BackupState = "InProgress"
 		if err := r.Status().Update(ctx, backup); err != nil {
-			log.Error(err, "Failed to update backup status to Failed")
+			log.Error(err, "Failed to update backup status to InProgress")
+			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, err
 	}
 
-	// Update the status to "Completed" if the backup succeeds
-	backup.Status.LastBackupTime = metav1.Now()
-	backup.Status.BackupState = "Completed"
-	if err := r.Status().Update(ctx, backup); err != nil {
-		log.Error(err, "Failed to update status to Completed")
-		return ctrl.Result{}, err
+	// Perform the actual backup
+	if err := r.performBackup(ctx, backup); err != nil {
+		log.Error(err, "Backup process failed")
+		backup.Status.BackupState = "Failed"
+	} else {
+		log.Info("Backup completed successfully")
+		backup.Status.BackupState = "Completed"
+		backup.Status.LastBackupTime = metav1.Now()
 	}
 
-	// Requeue for the next backup
+	// Compare the original and current status, only update if there are changes
+	if !equality.Semantic.DeepEqual(originalBackup.Status, backup.Status) {
+		log.Info("Updating backup status to reflect changes")
+		if err := r.Status().Update(ctx, backup); err != nil {
+			log.Error(err, "Failed to update backup status")
+			return ctrl.Result{}, err
+		}
+	} else {
+		log.Info("No status change detected, skipping update")
+	}
+
+	// Requeue for the next backup after 24 hours
 	return ctrl.Result{RequeueAfter: time.Hour * 24}, nil
 }
 
@@ -200,5 +214,15 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&storagev1.Backup{}).
+		WithEventFilter(predicate.Funcs{
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				// Only reconcile if the spec has changed, not the status
+				oldBackup := e.ObjectOld.(*storagev1.Backup)
+				newBackup := e.ObjectNew.(*storagev1.Backup)
+
+				// Ignore updates where only the status is changed
+				return oldBackup.Generation != newBackup.Generation
+			},
+		}).
 		Complete(r)
 }
